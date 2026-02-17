@@ -127,13 +127,22 @@ if __name__ == '__main__':
     drone_operator.set_speed(10)
 
     # 3秒間、指定された方向に移動（右＋左－,前＋後－,上＋下－）
-    drone_operator.set_rc_control(0, 0, 60, 25)
+    # x=100, y=100, z=100, speed=50でgoコマンドを実行
+
+    drone_operator.set_rc_control(0, 0, 30, 5)
     time.sleep(3)  # 3秒間待機
-    drone_operator.set_rc_control(-50, 0, 0, 25)
+    drone_operator.set_rc_control(-30, 0, 0, 5)
     time.sleep(3)  # 3秒間待機
-    drone_operator.set_rc_control(0, 50, 0, 25)
+    drone_operator.set_rc_control(0, 30, 0, 5)
     time.sleep(3)  # 3秒間待機
-    drone_operator.set_rc_control(0, 0, 0, 0)  # 動きを停止
+    drone_operator.set_rc_control(30, 0, 0, 5)
+    time.sleep(3)  # 3秒間待機
+    drone_operator.set_rc_control(0, -30, 0, 5)
+    time.sleep(3)  # 3秒間待機
+    drone_operator.set_rc_control(0, 0, -30, 5)
+    time.sleep(3)  # 3秒間待機
+    drone_operator.set_rc_control(0, 0, 0, 5)  # 動きを停止
     
     drone_operator.land() # 着陸
+
 
