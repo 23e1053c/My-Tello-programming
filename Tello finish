@@ -1,0 +1,139 @@
+#Part.1　ドローンに接続するためのコード
+
+import logging # ログの表示
+import socket # socket通信
+import sys
+import time
+
+# ログの設定
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+logger = logging.getLogger(__name__)
+
+
+class DroneOperator():
+    def __init__(self, host_ip='192.168.10.2', host_port=8889,
+                 tello_ip='192.168.10.1', tello_port=8889):
+        self.host_ip = host_ip # host側(PC)のIPアドレス
+        self.host_port = host_port # host側(PC)のポート番号　？
+        self.tello_ip = tello_ip # tello側のIPアドレス
+        self.tello_port = tello_port # tello側のポート番号 
+        self.tello_address = (tello_ip, tello_port)
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # UDOのソケット通信を指定
+        self.socket.bind((self.host_ip, self.host_port)) # バインドを実施
+        self.socket.sendto(b'command', self.tello_address) # ドローンにコマンドモードを開始するよう指示
+        
+    def __del__(self):
+        self.stop() # クラスのインスタンスが削除される際に呼ばれ、stopメソッドを呼び出してソケットを閉じる。
+
+    def stop(self):
+        self.socket.close() # ソケットを閉じる
+
+            # データ受信用にスレッドを追加
+        self.response = None
+
+        # データ受信用にスレッドを追加
+        self.monitoring_event = threading.Event()
+        self.monitoring_thread = threading.Thread(target=self.monitoring_task, args=(5,1))
+        self.monitoring_thread.start()
+
+
+	#ここにドローンを動かすコマンドを定義していきます。
+    def send_command(self, command):
+        logger.info({'action':'second_command','command':command}) # ログに記録したい情報
+        self.socket.sendto(command.encode('utf-8'), self.tello_address) # 指定されたコマンドをドローンに送信
+    
+    def takeoff(self):
+        self.send_command('takeoff') # 離陸のコマンドを定義
+
+    def land(self):
+        self.send_command('land') # 着陸のコマンドを定義
+
+    def go(self, x, y, z, speed):
+            if -20 <= x <= 20 and -20 <= y <= 20 and -20 <= z <= 20:
+                logger.error("x, y, zの値は同時に-20から20の間に設定することはできません。")
+                return  # コマンドを送信せずにメソッドを終了
+		    # x, y, zの座標とspeedの速度で飛行するコマンドを構築
+            command = f'go {x} {y} {z} {speed}'
+            self.send_command(command)  # 構築したコマンドを送信
+
+    def set_speed(self, speed):
+        # 移動速度を設定するコマンド
+        if 10 <= speed <= 100:
+            self.send_command(f'speed {speed}')
+        else:
+            logger.error("速度は10から100の間で設定してください。")
+
+    def set_rc_control(self, a, b, c, d):
+        # リモートコントロールの設定コマンド
+        if all(-100 <= param <= 100 for param in [a, b, c, d]):
+            self.send_command(f'rc {a} {b} {c} {d}')
+        else:
+            logger.error("各パラメータは-100から100の間で設定してください。")
+
+    def get_response(self):
+        """
+        最後に受け取った応答を返します。
+        """
+        return self.response
+
+    def monitoring_task(self, initial_interval, regular_interval):
+        """
+        初回のループでは長い待機時間を設け、その後は通常の間隔でバッテリー残量と飛行時間を取得するタスク。
+        """
+        first_loop = True
+        """
+        定期的にバッテリー残量と飛行時間を取得するタスク。
+        """
+        while not self.monitoring_event.is_set():
+            try:
+                if first_loop:
+                    time.sleep(initial_interval)
+                    first_loop = False
+                else:
+                    time.sleep(regular_interval)
+                self.send_command('battery?')
+                # time.sleep(0.5)  # 応答待ちのための遅延
+                # ソケットを介してドローンからの応答(1024バイトのデータ)を受け取る、送信元アドレスは重要でないため"_"とする。
+                battery_response, _ = self.socket.recvfrom(1024)
+                # 受け取ったデータはバイナリなのでUTF-8でデコードして文字列に変換
+                battery_level = battery_response.decode('utf-8')
+                logger.info(f"バッテリー残量: {battery_level}%")
+
+                self.send_command('time?')
+                # time.sleep(0.5)  # 応答待ちのための遅延
+                time_response, _ = self.socket.recvfrom(1024)
+                flight_time = time_response.decode('utf-8')
+                logger.info(f"飛行時間: {flight_time}")
+
+            except socket.error as err:
+                logger.error(f"ソケットエラー: {err}")
+
+    def stop_monitoring(self):
+        """
+        モニタリングスレッドを停止します。
+        """
+        self.monitoring_event.set()
+        self.monitoring_thread.join()
+
+
+
+
+if __name__ == '__main__':
+    drone_operator = DroneOperator() # TelloOperatorインスタンスの作成、上で定義したコマンドを下に書いて実際に動作させる
+    drone_operator.takeoff() # 離陸
+    time.sleep(4)
+
+    # 移動速度を10に設定
+    drone_operator.set_speed(10)
+
+    # 3秒間、指定された方向に移動（右＋左－,前＋後－,上＋下－）
+    drone_operator.set_rc_control(0, 0, 60, 25)
+    time.sleep(3)  # 3秒間待機
+    drone_operator.set_rc_control(-50, 0, 0, 25)
+    time.sleep(3)  # 3秒間待機
+    drone_operator.set_rc_control(0, 50, 0, 25)
+    time.sleep(3)  # 3秒間待機
+    drone_operator.set_rc_control(0, 0, 0, 0)  # 動きを停止
+    
+    drone_operator.land() # 着陸
+
